@@ -33,7 +33,7 @@ class DiscoverAction implements ActionInterface
         $candidateUrls = [];
 
         try {
-            $html = getSimpleHTMLDOM($url);
+            $html = $this->fetchHtmlWithHttp1Fallback($url);
         } catch (\Throwable $e) {
             return new Response(Json::encode(['message' => 'Could not fetch url: ' . $e->getMessage()]), 502, ['content-type' => 'application/json']);
         }
@@ -58,7 +58,7 @@ class DiscoverAction implements ActionInterface
         $feedParser = new FeedParser();
         foreach ($candidateUrls as $candidateUrl) {
             try {
-                $xml = getContents($candidateUrl);
+                $xml = $this->getContentsWithHttp1Fallback($candidateUrl);
                 $parsed = $feedParser->parseFeed($xml);
             } catch (\Throwable $e) {
                 continue;
@@ -88,6 +88,42 @@ class DiscoverAction implements ActionInterface
         ];
 
         return new Response(Json::encode($result), 200, ['content-type' => 'application/json']);
+    }
+
+    /**
+     * Some sites' CDNs negotiate an HTTP/2 connection that this server's curl
+     * chokes on ("HTTP/2 stream ... PROTOCOL_ERROR") even though the site is
+     * reachable fine over HTTP/1.1. Retry once, forced to HTTP/1.1, rather
+     * than failing discovery outright on a transport-layer quirk.
+     */
+    private function isHttp2ProtocolError(\Throwable $e): bool
+    {
+        return stripos($e->getMessage(), 'HTTP/2') !== false
+            && stripos($e->getMessage(), 'PROTOCOL_ERROR') !== false;
+    }
+
+    private function fetchHtmlWithHttp1Fallback(string $url): \simple_html_dom
+    {
+        try {
+            return getSimpleHTMLDOM($url);
+        } catch (\Throwable $e) {
+            if (!$this->isHttp2ProtocolError($e)) {
+                throw $e;
+            }
+            return getSimpleHTMLDOM($url, [], [CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1]);
+        }
+    }
+
+    private function getContentsWithHttp1Fallback(string $url): string
+    {
+        try {
+            return getContents($url);
+        } catch (\Throwable $e) {
+            if (!$this->isHttp2ProtocolError($e)) {
+                throw $e;
+            }
+            return getContents($url, [], [CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1]);
+        }
     }
 
     /**
