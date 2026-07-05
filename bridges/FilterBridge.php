@@ -50,6 +50,11 @@ class FilterBridge extends FeedExpander
             'type' => 'checkbox',
             'required' => false,
         ],
+        'target_category' => [
+            'name' => 'Apply filter on categories',
+            'type' => 'checkbox',
+            'required' => false,
+        ],
         'target_content' => [
             'name' => 'Apply filter on content',
             'type' => 'checkbox',
@@ -133,6 +138,11 @@ class FilterBridge extends FeedExpander
         if ($this->getInput('target_uri')) {
             // todo: maybe consider 'http' and 'https' equivalent? Also maybe optionally .www subdomain?
             $filter_fields[] = $item['uri'] ?? null;
+        }
+        if ($this->getInput('target_category')) {
+            foreach ($item['categories'] ?? [] as $category) {
+                $filter_fields[] = $category;
+            }
         }
 
         // Apply filter on item

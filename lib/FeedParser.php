@@ -144,8 +144,21 @@ final class FeedParser
 
         foreach ($feedItem as $k => $v) {
             $hasChildren = count($v) !== 0;
-            if (!$hasChildren) {
+            if (!$hasChildren && $k !== 'category') {
                 $item[$k] = (string) $v;
+            }
+        }
+
+        if (isset($feedItem->category)) {
+            $categories = [];
+            foreach ($feedItem->category as $category) {
+                $categoryText = trim((string) $category);
+                if ($categoryText !== '') {
+                    $categories[] = $categoryText;
+                }
+            }
+            if ($categories) {
+                $item['categories'] = $categories;
             }
         }
 
@@ -234,6 +247,18 @@ final class FeedParser
         }
         if (isset($feedItem->description)) {
             $item['content'] = (string)$feedItem->description;
+        }
+        if (isset($feedItem->category)) {
+            $categories = [];
+            foreach ($feedItem->category as $category) {
+                $categoryText = trim((string) $category);
+                if ($categoryText !== '') {
+                    $categories[] = $categoryText;
+                }
+            }
+            if ($categories) {
+                $item['categories'] = $categories;
+            }
         }
         $namespaces = $feedItem->getNamespaces(true);
         if (isset($namespaces['dc'])) {
