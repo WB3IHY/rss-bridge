@@ -12,6 +12,10 @@ $container[DetectAction::class] = function ($c) {
     return new DetectAction($c['bridge_factory']);
 };
 
+$container[DiscoverAction::class] = function () {
+    return new DiscoverAction();
+};
+
 $container[DisplayAction::class] = function ($c) {
     return new DisplayAction($c['cache'], $c['logger'], $c['bridge_factory']);
 };
