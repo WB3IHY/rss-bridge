@@ -240,6 +240,19 @@ class EntryClusterDetector
             return null; // every "entry" points to the same place - not a real item list
         }
 
+        $avgLinkTextLength = array_sum($linkTextLengths) / count($linkTextLengths);
+        // Verified against github.com/torvalds/linux/releases: when the real content
+        // (release cards) isn't in the static HTML at all - genuinely client-rendered,
+        // a case this static-HTML-only detector has no way to reach - the only
+        // remaining repeated-link structure was GitHub's own repo nav tab bar
+        // ("Code"/"Actions"/"Projects", avg ~6 chars). No amount of clustering logic
+        // finds the real content if it isn't there; the right response is to decline
+        // rather than confidently suggest chrome. Nav/menu labels are reliably short;
+        // real article titles reliably aren't.
+        if ($avgLinkTextLength < 15) {
+            return null;
+        }
+
         $linkRatio = $linkedCount / $count;
         $distinctRatio = $distinctUrls / $linkedCount;
         // Real article titles run much longer than metadata rows (vote counts,
@@ -247,7 +260,6 @@ class EntryClusterDetector
         // News scores its classless subtext rows (points/author/time/comments -
         // each linking somewhere distinct) just as well as its actual title rows,
         // and may even win on raw count alone if there happen to be more of them.
-        $avgLinkTextLength = array_sum($linkTextLengths) / count($linkTextLengths);
         $score = $count * $linkRatio * $distinctRatio * log(1 + $avgLinkTextLength);
 
         $parts = explode('.', $signature);
