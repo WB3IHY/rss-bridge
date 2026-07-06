@@ -120,6 +120,16 @@ class EntryClusterDetector
         return null;
     }
 
+    // Conventional "click through to the real article" link text. Verified against
+    // lwn.net: its actual permalink is a short <a href="/Articles/.../">Full Story</a>,
+    // while the blurb body often contains a much longer link to some unrelated external
+    // page it happens to be discussing (e.g. a conference site) - the opposite problem
+    // from the vote-button trap, where the correct link is the SHORT one, not the long one.
+    private const CONTINUE_READING_PATTERNS = [
+        'full story', 'read more', 'continue reading', 'keep reading',
+        'read full article', 'read the full', 'permalink', '[link]',
+    ];
+
     /**
      * Entries often contain several links (upvote/react buttons, author,
      * tags, the title itself) before the real article link in DOM order —
@@ -128,6 +138,11 @@ class EntryClusterDetector
      * text is a much better proxy for "this is the title", since utility
      * links (vote counts, icons, short tags) are almost always shorter than
      * an actual headline.
+     *
+     * Conventional "continue reading" links are checked first and win outright
+     * regardless of length, since they're a stronger, more direct signal than
+     * text length can ever be - text length is only a fallback proxy for
+     * "this is probably the title", not the actual goal.
      */
     private function findMostLikelyTitleLink($element)
     {
@@ -137,7 +152,11 @@ class EntryClusterDetector
             if (empty($candidate->href)) {
                 continue;
             }
-            $length = mb_strlen(trim($candidate->plaintext));
+            $text = trim($candidate->plaintext);
+            if (in_array(strtolower($text), self::CONTINUE_READING_PATTERNS, true)) {
+                return $candidate;
+            }
+            $length = mb_strlen($text);
             if ($length > $bestLength) {
                 $bestLength = $length;
                 $best = $candidate;
