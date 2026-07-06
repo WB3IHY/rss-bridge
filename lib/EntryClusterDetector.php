@@ -86,6 +86,32 @@ class EntryClusterDetector
         return $tag . '.' . implode('.', $classes);
     }
 
+    /**
+     * Entries often contain several links (upvote/react buttons, author,
+     * tags, the title itself) before the real article link in DOM order —
+     * e.g. a vote link that's identical across every entry. Picking "the
+     * first link" is fooled by this; picking the link with the most visible
+     * text is a much better proxy for "this is the title", since utility
+     * links (vote counts, icons, short tags) are almost always shorter than
+     * an actual headline.
+     */
+    private function findMostLikelyTitleLink($element)
+    {
+        $best = null;
+        $bestLength = -1;
+        foreach ($element->find('a') as $candidate) {
+            if (empty($candidate->href)) {
+                continue;
+            }
+            $length = mb_strlen(trim($candidate->plaintext));
+            if ($length > $bestLength) {
+                $bestLength = $length;
+                $best = $candidate;
+            }
+        }
+        return $best;
+    }
+
     private function hasBoilerplateAncestor($node, int $maxDepth = 4): bool
     {
         $depth = 0;
@@ -121,7 +147,7 @@ class EntryClusterDetector
         $urls = [];
         $samples = [];
         foreach ($elements as $element) {
-            $link = $element->tag === 'a' ? $element : $element->find('a', 0);
+            $link = $element->tag === 'a' ? $element : $this->findMostLikelyTitleLink($element);
             if ($link === null || empty($link->href)) {
                 continue;
             }
