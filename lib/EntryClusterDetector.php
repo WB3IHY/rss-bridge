@@ -181,6 +181,7 @@ class EntryClusterDetector
         $urls = [];
         $samples = [];
         $linkClassVotes = [];
+        $linkTextLengths = [];
         foreach ($elements as $element) {
             $link = $element->tag === 'a' ? $element : $this->findMostLikelyTitleLink($element);
             if ($link === null || empty($link->href)) {
@@ -188,6 +189,7 @@ class EntryClusterDetector
             }
             $href = html_entity_decode((string) $link->href);
             $urls[] = urljoin($pageUrl, $href);
+            $linkTextLengths[] = mb_strlen(trim($link->plaintext));
             if (count($samples) < 3) {
                 $samples[] = mb_substr(trim($element->plaintext), 0, 120);
             }
@@ -211,7 +213,13 @@ class EntryClusterDetector
 
         $linkRatio = $linkedCount / $count;
         $distinctRatio = $distinctUrls / $linkedCount;
-        $score = $count * $linkRatio * $distinctRatio;
+        // Real article titles run much longer than metadata rows (vote counts,
+        // "N comments", usernames, timestamps). Without this, a page like Hacker
+        // News scores its classless subtext rows (points/author/time/comments -
+        // each linking somewhere distinct) just as well as its actual title rows,
+        // and may even win on raw count alone if there happen to be more of them.
+        $avgLinkTextLength = array_sum($linkTextLengths) / count($linkTextLengths);
+        $score = $count * $linkRatio * $distinctRatio * log(1 + $avgLinkTextLength);
 
         $parts = explode('.', $signature);
         if (isset($parts[1])) {
