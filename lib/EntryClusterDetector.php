@@ -62,9 +62,14 @@ class EntryClusterDetector
         if ($parent !== null) {
             $signature = $this->signature($node);
             if ($signature !== null) {
-                $key = spl_object_id($parent) . '|' . $signature;
+                $key = $this->parentScopeKey($parent) . '|' . $signature;
                 $groups[$key]['elements'][] = $node;
                 $groups[$key]['signature'] = $signature;
+                // Groups pooled across several structurally-equivalent parents (see
+                // parentScopeKey) end up with one representative parent here, from
+                // whichever element happened to be visited last - fine for the ancestor
+                // checks this is used for (boilerplate tags, scoping selector lookups),
+                // since all pooled parents share the same signature by construction.
                 $groups[$key]['parent'] = $parent;
             }
         }
@@ -72,6 +77,30 @@ class EntryClusterDetector
         foreach ($node->children() as $child) {
             $this->walk($child, $groups);
         }
+    }
+
+    /**
+     * Identifies "the logical container" a child belongs to for grouping purposes.
+     * Normally that's just the parent's own object identity - the original behavior,
+     * still used verbatim whenever the parent is a generic, classless wrapper.
+     *
+     * But when the parent itself has a class (a styled, deliberately-repeatable
+     * component, not incidental markup) and has its own parent, pool by (grandparent,
+     * parent's own signature) instead of the parent's exact identity. This is what lets
+     * nbcphiladelphia.com's 9 separate "category" sections - each containing a handful
+     * of story cards, too few individually to ever pass MIN_GROUP_SIZE on their own -
+     * be recognized as one combined list of ~30 articles, since all 9 category divs
+     * share both a class and a grandparent even though each has its own children.
+     */
+    private function parentScopeKey($parent): string
+    {
+        $parentClass = trim((string) ($parent->class ?? ''));
+        $grandparent = $parent->parent();
+        if ($parentClass !== '' && $grandparent !== null) {
+            $parentSignature = $this->signature($parent);
+            return 'scoped:' . spl_object_id($grandparent) . '|' . $parentSignature;
+        }
+        return 'exact:' . spl_object_id($parent);
     }
 
     private function signature($node): ?string
