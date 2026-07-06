@@ -79,11 +79,45 @@ class EntryClusterDetector
         $tag = $node->tag;
         $class = trim((string) ($node->class ?? ''));
         if ($class === '') {
-            return null; // too generic a signal on its own (tag name alone matches too much)
+            // Bare tag name only. This is still safe to GROUP by, since the grouping key
+            // also includes the parent's identity (see walk()) - siblings under one <ul>
+            // won't be conflated with unrelated <li>s elsewhere on the page. It's only
+            // unsafe to EXPORT as a selector as-is, since CssSelectorComplexBridge would
+            // apply it document-wide; evaluateGroup() scopes it via the parent before
+            // exporting, or declines the candidate if no ancestor is identifiable.
+            return $tag;
         }
         $classes = array_values(array_unique(array_filter(preg_split('/\s+/', $class))));
         sort($classes);
         return $tag . '.' . implode('.', $classes);
+    }
+
+    /**
+     * Finds the nearest ancestor (starting at $node itself) with an id or class, and
+     * returns a selector fragment for it. Used to scope an otherwise-bare tag selector
+     * (e.g. a classless <li>) to the specific list it came from, rather than exporting
+     * something that would match every <li> on the page.
+     */
+    private function findScopingAncestorSelector($node, int $maxDepth = 3): ?string
+    {
+        $depth = 0;
+        while ($node !== null && $depth < $maxDepth) {
+            if (!isset($node->tag) || $node->tag === 'root') {
+                return null;
+            }
+            $id = trim((string) ($node->id ?? ''));
+            if ($id !== '') {
+                return '#' . $id;
+            }
+            $class = trim((string) ($node->class ?? ''));
+            if ($class !== '') {
+                $firstClass = preg_split('/\s+/', $class)[0];
+                return $node->tag . '.' . $firstClass;
+            }
+            $node = $node->parent();
+            $depth++;
+        }
+        return null;
     }
 
     /**
@@ -180,7 +214,18 @@ class EntryClusterDetector
         $score = $count * $linkRatio * $distinctRatio;
 
         $parts = explode('.', $signature);
-        $entrySelector = isset($parts[1]) ? $parts[0] . '.' . $parts[1] : $parts[0];
+        if (isset($parts[1])) {
+            $entrySelector = $parts[0] . '.' . $parts[1];
+        } else {
+            // Bare tag signature (no class on the entry itself) - must be scoped to an
+            // identifiable ancestor before it's safe to export, or it'll match every
+            // occurrence of that tag on the whole page, not just this list.
+            $scope = $this->findScopingAncestorSelector($group['parent']);
+            if ($scope === null) {
+                return null;
+            }
+            $entrySelector = $scope . ' ' . $parts[0];
+        }
 
         // CssSelectorComplexBridge defaults its own url_selector to plain "a" (first
         // link in the entry) if we don't specify one — which reintroduces exactly the
