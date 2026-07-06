@@ -146,6 +146,36 @@ class EntryClusterDetector
         return $best;
     }
 
+    /**
+     * Builds a selector fragment (relative to the entry element) that should reach
+     * $link specifically, not just "the first <a>". Prefers the link's own class;
+     * if it has none (e.g. Hacker News's title/vote links are both classless),
+     * walks up from the link - stopping at the entry boundary - looking for the
+     * nearest wrapping element with a class to scope through instead (e.g. HN's
+     * title link sits in <span class="titleline">, its vote link doesn't).
+     */
+    private function findLinkSelectorFragment($entryElement, $link): ?string
+    {
+        $linkClass = trim((string) ($link->class ?? ''));
+        if ($linkClass !== '') {
+            return 'a.' . preg_split('/\s+/', $linkClass)[0];
+        }
+
+        $node = $link->parent();
+        $depth = 0;
+        while ($node !== null && $node !== $entryElement && $depth < 5) {
+            $class = trim((string) ($node->class ?? ''));
+            if ($class !== '') {
+                $firstClass = preg_split('/\s+/', $class)[0];
+                return $node->tag . '.' . $firstClass . ' a';
+            }
+            $node = $node->parent();
+            $depth++;
+        }
+
+        return null;
+    }
+
     private function hasBoilerplateAncestor($node, int $maxDepth = 4): bool
     {
         $depth = 0;
@@ -180,7 +210,7 @@ class EntryClusterDetector
 
         $urls = [];
         $samples = [];
-        $linkClassVotes = [];
+        $linkSelectorVotes = [];
         $linkTextLengths = [];
         foreach ($elements as $element) {
             $link = $element->tag === 'a' ? $element : $this->findMostLikelyTitleLink($element);
@@ -194,10 +224,9 @@ class EntryClusterDetector
                 $samples[] = mb_substr(trim($element->plaintext), 0, 120);
             }
 
-            $linkClass = trim((string) ($link->class ?? ''));
-            if ($linkClass !== '') {
-                $firstLinkClass = preg_split('/\s+/', $linkClass)[0];
-                $linkClassVotes[$firstLinkClass] = ($linkClassVotes[$firstLinkClass] ?? 0) + 1;
+            $linkSelector = $this->findLinkSelectorFragment($element, $link);
+            if ($linkSelector !== null) {
+                $linkSelectorVotes[$linkSelector] = ($linkSelectorVotes[$linkSelector] ?? 0) + 1;
             }
         }
 
@@ -246,16 +275,16 @@ class EntryClusterDetector
         // CssSelectorComplexBridge defaults its own url_selector to plain "a" (first
         // link in the entry) if we don't specify one — which reintroduces exactly the
         // "first link is a vote/react button" trap findMostLikelyTitleLink() exists to
-        // avoid. So: if the links we actually picked mostly share a class, suggest that
-        // as an explicit url_selector; otherwise leave it out and say so, rather than
-        // silently handing back a config that looks fine but points at the wrong URL.
+        // avoid. So: if the links we actually picked resolve to a consistent selector
+        // fragment, suggest that as an explicit url_selector; otherwise leave it out and
+        // say so, rather than silently handing back a config likely pointing at the wrong URL.
         $urlSelector = null;
-        if ($linkClassVotes) {
-            arsort($linkClassVotes);
-            $topClass = array_key_first($linkClassVotes);
-            $coverage = $linkClassVotes[$topClass] / $linkedCount;
+        if ($linkSelectorVotes) {
+            arsort($linkSelectorVotes);
+            $topSelector = array_key_first($linkSelectorVotes);
+            $coverage = $linkSelectorVotes[$topSelector] / $linkedCount;
             if ($coverage >= 0.6) {
-                $urlSelector = 'a.' . $topClass;
+                $urlSelector = $topSelector;
             }
         }
 
