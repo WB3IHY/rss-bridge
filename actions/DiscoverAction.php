@@ -78,13 +78,18 @@ class DiscoverAction implements ActionInterface
             ];
         }
 
+        $suggestedScrapeConfig = $this->buildSuggestedScrapeConfig($html, $url);
+
         $result = [
             'url' => $url,
             'nativeFeeds' => $feeds,
+            'suggestedScrapeConfig' => $suggestedScrapeConfig,
             'note' => 'This only reports native feeds already published by the site, and whether our lenient parser could read them. '
                 . 'Our parser is deliberately permissive, so a clean parse here is NOT proof a feed is usable in a real reader like FreshRSS — '
                 . 'see the "issues" list per feed for known FreshRSS-breaking symptoms we do check for. '
-                . 'Scraping-based generation is a separate, always-available option regardless of what is found or how many issues it has.',
+                . 'suggestedScrapeConfig is a best-effort heuristic guess at an article-list selector, offered regardless of what '
+                . 'native feeds were found above (some feeds are technically valid but too limited or broken to actually use) — '
+                . 'verify it, don\'t trust it blindly, and tune the selector by hand if it picked the wrong repeated element.',
         ];
 
         return new Response(Json::encode($result), 200, ['content-type' => 'application/json']);
@@ -124,6 +129,39 @@ class DiscoverAction implements ActionInterface
             }
             return getContents($url, [], [CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1]);
         }
+    }
+
+    /**
+     * Runs the entry-clustering heuristic against the already-fetched homepage
+     * and, if it finds a plausible repeated article pattern, packages it as a
+     * ready-to-use CssSelectorComplexBridge display URL plus the raw signals
+     * behind the guess (match count, sample texts) so a human can judge it.
+     *
+     * @return array{entrySelector: string, matchCount: int, distinctUrlCount: int, sampleTexts: string[], suggestedUrl: string}|null
+     */
+    private function buildSuggestedScrapeConfig(\simple_html_dom $html, string $pageUrl): ?array
+    {
+        $candidate = (new EntryClusterDetector())->detect($html, $pageUrl);
+        if ($candidate === null) {
+            return null;
+        }
+
+        $query = http_build_query([
+            'action' => 'display',
+            'bridge' => 'CssSelectorComplexBridge',
+            'format' => 'Atom',
+            'home_page' => $pageUrl,
+            'entry_element_selector' => $candidate['entry_selector'],
+            'limit' => 15,
+        ]);
+
+        return [
+            'entrySelector' => $candidate['entry_selector'],
+            'matchCount' => $candidate['matchCount'],
+            'distinctUrlCount' => $candidate['distinctUrlCount'],
+            'sampleTexts' => $candidate['sampleTexts'],
+            'suggestedUrl' => '?' . $query,
+        ];
     }
 
     /**
