@@ -176,7 +176,7 @@ class EntryClusterDetector
         return null;
     }
 
-    private function hasBoilerplateAncestor($node, int $maxDepth = 4): bool
+    private function hasBoilerplateAncestor($node, int $maxDepth = 8): bool
     {
         $depth = 0;
         while ($node !== null && $depth < $maxDepth) {
@@ -269,6 +269,17 @@ class EntryClusterDetector
                     return null;
                 }
                 $entrySelector = $parts[0];
+            }
+        }
+
+        // The denylist check above only covered the entry's own signature. A classless
+        // entry's scope comes from an ancestor whose class was never checked - e.g. a
+        // classless <li> scoped to "ul.NavDropdown-module__list__zuCgG" (GitHub) or
+        // "ul.crawler-view-anon-menu" (Discourse) both slipped through as nav menus,
+        // not article lists, before this check existed.
+        foreach (self::DENYLIST_HINTS as $hint) {
+            if (stripos($entrySelector, $hint) !== false) {
+                return null;
             }
         }
 
