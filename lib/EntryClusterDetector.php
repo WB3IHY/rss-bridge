@@ -16,7 +16,7 @@ declare(strict_types=1);
 class EntryClusterDetector
 {
     private const MIN_GROUP_SIZE = 4;
-    private const MAX_GROUP_SIZE = 100;
+    private const MAX_GROUP_SIZE = 500;
 
     // Class-name substrings that strongly suggest chrome/boilerplate, not article entries.
     private const DENYLIST_HINTS = [
@@ -39,7 +39,7 @@ class EntryClusterDetector
         $bestScore = 0.0;
 
         foreach ($groups as $group) {
-            $candidate = $this->evaluateGroup($group, $pageUrl);
+            $candidate = $this->evaluateGroup($group, $pageUrl, $html);
             if ($candidate !== null && $candidate['score'] > $bestScore) {
                 $bestScore = $candidate['score'];
                 $best = $candidate;
@@ -159,7 +159,7 @@ class EntryClusterDetector
         return false;
     }
 
-    private function evaluateGroup(array $group, string $pageUrl): ?array
+    private function evaluateGroup(array $group, string $pageUrl, \simple_html_dom $html): ?array
     {
         $elements = $group['elements'];
         $count = count($elements);
@@ -221,10 +221,18 @@ class EntryClusterDetector
             // identifiable ancestor before it's safe to export, or it'll match every
             // occurrence of that tag on the whole page, not just this list.
             $scope = $this->findScopingAncestorSelector($group['parent']);
-            if ($scope === null) {
-                return null;
+            if ($scope !== null) {
+                $entrySelector = $scope . ' ' . $parts[0];
+            } else {
+                // No identifiable ancestor anywhere nearby (e.g. a page with no class or
+                // id at all). Still safe to export the bare tag IF this group already
+                // accounts for every occurrence of that tag on the whole page - there's
+                // nothing else it could accidentally sweep in.
+                if (count($html->find($parts[0])) !== $count) {
+                    return null;
+                }
+                $entrySelector = $parts[0];
             }
-            $entrySelector = $scope . ' ' . $parts[0];
         }
 
         // CssSelectorComplexBridge defaults its own url_selector to plain "a" (first
