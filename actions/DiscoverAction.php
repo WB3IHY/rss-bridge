@@ -146,21 +146,36 @@ class DiscoverAction implements ActionInterface
             return null;
         }
 
-        $query = http_build_query([
+        $queryParams = [
             'action' => 'display',
             'bridge' => 'CssSelectorComplexBridge',
             'format' => 'Atom',
             'home_page' => $pageUrl,
             'entry_element_selector' => $candidate['entry_selector'],
             'limit' => 15,
-        ]);
+        ];
+
+        $urlSelectorWarning = null;
+        if ($candidate['url_selector'] !== null) {
+            $queryParams['url_selector'] = $candidate['url_selector'];
+        } else {
+            // CssSelectorComplexBridge defaults url_selector to plain "a" (first link in
+            // the entry). We couldn't confidently tell it which link is the real one, so
+            // without a manual fix that default may point every item at the wrong URL.
+            $urlSelectorWarning = 'Could not confidently identify which link in each entry is the real article link '
+                . '(no single link class covered enough entries). This URL will use CssSelectorComplexBridge\'s '
+                . 'default of "first link in the entry", which may be wrong (e.g. a vote/react button instead of '
+                . 'the title) — check the output and add a url_selector parameter manually if so.';
+        }
 
         return [
             'entrySelector' => $candidate['entry_selector'],
+            'urlSelector' => $candidate['url_selector'],
+            'urlSelectorWarning' => $urlSelectorWarning,
             'matchCount' => $candidate['matchCount'],
             'distinctUrlCount' => $candidate['distinctUrlCount'],
             'sampleTexts' => $candidate['sampleTexts'],
-            'suggestedUrl' => '?' . $query,
+            'suggestedUrl' => '?' . http_build_query($queryParams),
         ];
     }
 

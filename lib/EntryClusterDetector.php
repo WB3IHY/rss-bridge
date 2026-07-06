@@ -146,6 +146,7 @@ class EntryClusterDetector
 
         $urls = [];
         $samples = [];
+        $linkClassVotes = [];
         foreach ($elements as $element) {
             $link = $element->tag === 'a' ? $element : $this->findMostLikelyTitleLink($element);
             if ($link === null || empty($link->href)) {
@@ -155,6 +156,12 @@ class EntryClusterDetector
             $urls[] = urljoin($pageUrl, $href);
             if (count($samples) < 3) {
                 $samples[] = mb_substr(trim($element->plaintext), 0, 120);
+            }
+
+            $linkClass = trim((string) ($link->class ?? ''));
+            if ($linkClass !== '') {
+                $firstLinkClass = preg_split('/\s+/', $linkClass)[0];
+                $linkClassVotes[$firstLinkClass] = ($linkClassVotes[$firstLinkClass] ?? 0) + 1;
             }
         }
 
@@ -175,8 +182,25 @@ class EntryClusterDetector
         $parts = explode('.', $signature);
         $entrySelector = isset($parts[1]) ? $parts[0] . '.' . $parts[1] : $parts[0];
 
+        // CssSelectorComplexBridge defaults its own url_selector to plain "a" (first
+        // link in the entry) if we don't specify one — which reintroduces exactly the
+        // "first link is a vote/react button" trap findMostLikelyTitleLink() exists to
+        // avoid. So: if the links we actually picked mostly share a class, suggest that
+        // as an explicit url_selector; otherwise leave it out and say so, rather than
+        // silently handing back a config that looks fine but points at the wrong URL.
+        $urlSelector = null;
+        if ($linkClassVotes) {
+            arsort($linkClassVotes);
+            $topClass = array_key_first($linkClassVotes);
+            $coverage = $linkClassVotes[$topClass] / $linkedCount;
+            if ($coverage >= 0.6) {
+                $urlSelector = 'a.' . $topClass;
+            }
+        }
+
         return [
             'entry_selector' => $entrySelector,
+            'url_selector' => $urlSelector,
             'matchCount' => $count,
             'linkedCount' => $linkedCount,
             'distinctUrlCount' => $distinctUrls,
