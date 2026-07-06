@@ -90,12 +90,22 @@ final class CurlHttpClient implements HttpClient
             'TE' => 'trailers',
         ];
 
+        // array_merge() always takes the second array's value for a shared key, even if
+        // that value is null - so explicitly-null entries in the incoming $config (e.g.
+        // 'useragent' => Configuration::getConfig(...) resolving to null because it isn't
+        // set in config.ini.php, the default out-of-the-box state) would otherwise silently
+        // clobber the defaults set immediately below, leaving requests with NO User-Agent
+        // header at all despite the code's clear intent to send a realistic one. Verified
+        // this caused every request to 6abc.com to be blocked as a bot with zero UA, even
+        // though nothing here was ever configured to suppress it.
+        $config = array_filter($config, fn ($value) => $value !== null);
+
         if (curl_version()['ssl_version'] == 'BoringSSL') {
             $config = array_merge($defaultConfig, $config);
         } else {
             $defaultConfig['useragent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:102.0) Gecko/20100101 Firefox/102.0';
             curl_setopt($ch, CURLOPT_HEADER, false);
-            $headers = array_merge($defaultHeaders, $config['headers']);
+            $headers = array_merge($defaultHeaders, $config['headers'] ?? []);
             $config = array_merge($defaultConfig, $config);
             $config['headers'] = $headers;
         }
