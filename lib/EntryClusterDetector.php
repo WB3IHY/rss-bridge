@@ -62,7 +62,8 @@ class EntryClusterDetector
         if ($parent !== null) {
             $signature = $this->signature($node);
             if ($signature !== null) {
-                $key = $this->parentScopeKey($parent) . '|' . $signature;
+                $scopeKey = $this->parentScopeKey($parent);
+                $key = $scopeKey . '|' . $signature;
                 $groups[$key]['elements'][] = $node;
                 $groups[$key]['signature'] = $signature;
                 // Groups pooled across several structurally-equivalent parents (see
@@ -71,6 +72,7 @@ class EntryClusterDetector
                 // checks this is used for (boilerplate tags, scoping selector lookups),
                 // since all pooled parents share the same signature by construction.
                 $groups[$key]['parent'] = $parent;
+                $groups[$key]['pooled'] = str_starts_with($scopeKey, 'scoped:');
             }
         }
 
@@ -286,6 +288,19 @@ class EntryClusterDetector
         $distinctUrls = count(array_unique($urls));
         if ($distinctUrls < 2) {
             return null; // every "entry" points to the same place - not a real item list
+        }
+
+        // Verified against lwn.net: pooling (see parentScopeKey) correctly combines
+        // nbcphiladelphia.com's fragmented-but-genuinely-repeated story cards, but it can
+        // also combine heterogeneous, NOT-actually-repeated elements that just happen to
+        // share a tag - e.g. every blurb's few different <p> tags (an intro paragraph, a
+        // "Full Story" paragraph) pooled across all 10 blurbs inflated the raw count (50)
+        // enough to outscore the correct, cleaner div.BlurbListing grouping (10/10 perfect
+        // ratio), despite the pooled group's much worse distinctness (22/50). Pooled
+        // candidates are structurally riskier than an exact shared parent, so hold them to
+        // a higher distinctness bar rather than letting raw count alone win them the vote.
+        if (!empty($group['pooled']) && ($distinctUrls / $linkedCount) < 0.8) {
+            return null;
         }
 
         $avgLinkTextLength = array_sum($linkTextLengths) / count($linkTextLengths);
