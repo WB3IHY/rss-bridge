@@ -3,6 +3,7 @@
     document.addEventListener('DOMContentLoaded', rssbridge_toggle_bridge);
     document.addEventListener('DOMContentLoaded', rssbridge_list_search);
     document.addEventListener('DOMContentLoaded', rssbridge_feed_finder);
+    document.addEventListener('DOMContentLoaded', rssbridge_discover_finder);
 </script>
 
 <section class="searchbar">
@@ -22,6 +23,30 @@
         name="findfeed"
     >Find Feed from URL</button>
     <section id="findfeedresults">
+    </section>
+
+</section>
+
+<section class="searchbar">
+    <h3>Discover a feed for any site</h3>
+    <p>
+        Checks for a native RSS/Atom feed on the given page, and separately proposes a
+        best-effort scraped selector configuration as a fallback (or an alternative, if the
+        native feed exists but isn't good enough). Always verify the result before subscribing.
+    </p>
+    <input
+        type="text"
+        name="discoverfield"
+        id="discoverfield"
+        placeholder="https://example.com/blog/"
+        value=""
+    >
+    <button
+        type="button"
+        id="discoverfeed"
+        name="discoverfeed"
+    >Discover Feed</button>
+    <section id="discoverresults">
     </section>
 
 </section>
