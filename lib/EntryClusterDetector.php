@@ -18,6 +18,10 @@ class EntryClusterDetector
     private const MIN_GROUP_SIZE = 4;
     private const MAX_GROUP_SIZE = 500;
 
+    // Fraction of a same-tag/same-parent-scope sibling pool that must share a class
+    // for it to count as part of that pool's "core" signature (see buildCoreClassGroup).
+    private const MIN_CORE_CLASS_COVERAGE = 0.6;
+
     // Class-name substrings that strongly suggest chrome/boilerplate, not article entries.
     private const DENYLIST_HINTS = [
         'nav', 'menu', 'footer', 'header', 'sidebar', 'widget', 'comment',
@@ -33,7 +37,15 @@ class EntryClusterDetector
     public function detect(\simple_html_dom $html, string $pageUrl): ?array
     {
         $groups = [];
-        $this->walk($html->root, $groups);
+        $tagPools = [];
+        $this->walk($html->root, $groups, $tagPools);
+
+        foreach ($tagPools as $poolKey => $pool) {
+            $coreGroup = $this->buildCoreClassGroup($pool);
+            if ($coreGroup !== null) {
+                $groups[$poolKey . '|core'] = $coreGroup;
+            }
+        }
 
         $best = null;
         $bestScore = 0.0;
@@ -49,11 +61,11 @@ class EntryClusterDetector
         return $best;
     }
 
-    private function walk($node, array &$groups): void
+    private function walk($node, array &$groups, array &$tagPools): void
     {
         if (!isset($node->tag) || in_array($node->tag, ['text', 'comment', 'script', 'style', 'root'], true)) {
             foreach ($node->children() as $child) {
-                $this->walk($child, $groups);
+                $this->walk($child, $groups, $tagPools);
             }
             return;
         }
@@ -73,12 +85,110 @@ class EntryClusterDetector
                 // since all pooled parents share the same signature by construction.
                 $groups[$key]['parent'] = $parent;
                 $groups[$key]['pooled'] = str_starts_with($scopeKey, 'scoped:');
+
+                // Coarser sibling pool for buildCoreClassGroup(): same tag and parent
+                // scope, but NOT keyed by the full class signature, so it survives even
+                // when every sibling's exact class list differs (see that method).
+                $poolKey = $scopeKey . '|tag:' . $node->tag;
+                $tagPools[$poolKey]['elements'][] = $node;
+                $tagPools[$poolKey]['parent'] = $parent;
+                $tagPools[$poolKey]['tag'] = $node->tag;
+                $tagPools[$poolKey]['pooled'] = str_starts_with($scopeKey, 'scoped:');
             }
         }
 
         foreach ($node->children() as $child) {
-            $this->walk($child, $groups);
+            $this->walk($child, $groups, $tagPools);
         }
+    }
+
+    /**
+     * Fallback for siblings that share a tag and parent but never form a single
+     * exact-match signature group large enough on its own (see signature() /
+     * walk()) - most commonly WordPress's post_class() output, which stamps every
+     * <article> with a unique per-post "post-{ID}" class plus that post's own
+     * category/tag classes, on top of a shared set of theme/structural classes.
+     * Exact full-class-list matching then sees N distinct one-off signatures
+     * instead of one real group of N.
+     *
+     * Finds classes shared by at least MIN_CORE_CLASS_COVERAGE of the pool's
+     * elements - not literally all of them, so a couple of genuine outliers (e.g.
+     * a few posts with an extra has-post-thumbnail class the rest lack) don't
+     * derail the whole group - then keeps only the elements containing every one
+     * of those "core" classes.
+     *
+     * Deliberately conservative: needs an actual non-empty shared core to fire at
+     * all. This is what keeps it from merging e.g. Hacker News's title rows
+     * (tr.athing) and subtext rows (bare tr, same tag, same parent) into one
+     * group: neither the ~46%-of-the-pool "athing" class nor "no class at all"
+     * clears the coverage threshold, so the core comes back empty and this
+     * contributes nothing there - the existing exact-match groups already produce
+     * the right two candidates for that page anyway.
+     *
+     * @param array{elements: array, parent: mixed, tag: string, pooled: bool} $pool
+     * @return array{elements: array, signature: string, parent: mixed, pooled: bool}|null
+     */
+    private function buildCoreClassGroup(array $pool): ?array
+    {
+        $elements = $pool['elements'];
+        $count = count($elements);
+        if ($count < self::MIN_GROUP_SIZE || $count > self::MAX_GROUP_SIZE) {
+            return null;
+        }
+
+        $classCounts = [];
+        foreach ($elements as $element) {
+            $class = trim((string) ($element->class ?? ''));
+            if ($class === '') {
+                continue;
+            }
+            foreach (array_unique(preg_split('/\s+/', $class)) as $token) {
+                $classCounts[$token] = ($classCounts[$token] ?? 0) + 1;
+            }
+        }
+
+        $threshold = self::MIN_CORE_CLASS_COVERAGE * $count;
+        $coreClasses = [];
+        foreach ($classCounts as $token => $n) {
+            if ($n >= $threshold) {
+                $coreClasses[] = $token;
+            }
+        }
+
+        if (!$coreClasses) {
+            return null;
+        }
+        sort($coreClasses);
+
+        $matching = [];
+        foreach ($elements as $element) {
+            $class = trim((string) ($element->class ?? ''));
+            if ($class === '') {
+                continue;
+            }
+            $tokens = preg_split('/\s+/', $class);
+            $hasAllCore = true;
+            foreach ($coreClasses as $core) {
+                if (!in_array($core, $tokens, true)) {
+                    $hasAllCore = false;
+                    break;
+                }
+            }
+            if ($hasAllCore) {
+                $matching[] = $element;
+            }
+        }
+
+        if (count($matching) < self::MIN_GROUP_SIZE) {
+            return null;
+        }
+
+        return [
+            'elements' => $matching,
+            'signature' => $pool['tag'] . '.' . implode('.', $coreClasses),
+            'parent' => $pool['parent'],
+            'pooled' => $pool['pooled'],
+        ];
     }
 
     /**
