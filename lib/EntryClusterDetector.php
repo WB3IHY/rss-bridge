@@ -31,6 +31,19 @@ class EntryClusterDetector
 
     private const BOILERPLATE_ANCESTOR_TAGS = ['nav', 'header', 'footer', 'aside'];
 
+    // Class-name substrings marking "this is rendered post/article body prose", not a
+    // list of entries. Verified against ma.tt: its real per-post <article> elements each
+    // wrap their prose in <div class="entry-content">, which itself contains many
+    // <p class="wp-block-paragraph"> - some holding inline citation links (e.g. linking
+    // out to a news article being quoted). Pooled across ~12 posts on the homepage, those
+    // incidental paragraph links out-counted (59 elements) and out-scored the real,
+    // correct 12-article group, since nothing previously distinguished "a link inside
+    // ordinary body prose" from "a link that IS the entry". A candidate whose own parent
+    // sits inside one of these wrappers is reliably body content, not a list of entries.
+    private const BODY_CONTENT_ANCESTOR_HINTS = [
+        'entry-content', 'post-content', 'article-content', 'article-body', 'post-body',
+    ];
+
     /**
      * @return array{entry_selector: string, matchCount: int, linkedCount: int, distinctUrlCount: int, sampleTexts: string[], score: float}|null
      */
@@ -271,6 +284,8 @@ class EntryClusterDetector
         'read full article', 'read the full', 'permalink', '[link]',
     ];
 
+    private const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+
     /**
      * Entries often contain several links (upvote/react buttons, author,
      * tags, the title itself) before the real article link in DOM order —
@@ -284,11 +299,24 @@ class EntryClusterDetector
      * regardless of length, since they're a stronger, more direct signal than
      * text length can ever be - text length is only a fallback proxy for
      * "this is probably the title", not the actual goal.
+     *
+     * A link wrapped in a heading tag (h1-h6) is checked next, also winning
+     * outright over plain length among only the heading-wrapped candidates.
+     * Verified against ma.tt: real posts there have a full prose body, and an
+     * inline citation link within that body (e.g. "...writes: <a>Automattic's
+     * 'Code for the People' Documentary Is a Rallying Cry...</a>") easily
+     * outruns the actual title link's length (<h1 class="entry-title"><a>Code
+     * for the People</a></h1>) - the opposite of the vote-button trap, where
+     * length correctly favors the title. A heading wrapper is a much stronger,
+     * more direct "this is the title" signal than length can ever be for
+     * entries whose body text also contains links.
      */
     private function findMostLikelyTitleLink($element)
     {
         $best = null;
         $bestLength = -1;
+        $headingBest = null;
+        $headingBestLength = -1;
         foreach ($element->find('a') as $candidate) {
             if (empty($candidate->href)) {
                 continue;
@@ -302,8 +330,26 @@ class EntryClusterDetector
                 $bestLength = $length;
                 $best = $candidate;
             }
+            if ($this->isInsideHeading($candidate, $element) && $length > $headingBestLength) {
+                $headingBestLength = $length;
+                $headingBest = $candidate;
+            }
         }
-        return $best;
+        return $headingBest ?? $best;
+    }
+
+    private function isInsideHeading($link, $entryBoundary, int $maxDepth = 6): bool
+    {
+        $node = $link->parent();
+        $depth = 0;
+        while ($node !== null && $node !== $entryBoundary && $depth < $maxDepth) {
+            if (isset($node->tag) && in_array($node->tag, self::HEADING_TAGS, true)) {
+                return true;
+            }
+            $node = $node->parent();
+            $depth++;
+        }
+        return false;
     }
 
     /**
@@ -349,6 +395,26 @@ class EntryClusterDetector
         return false;
     }
 
+    private function hasBodyContentAncestor($node, int $maxDepth = 4): bool
+    {
+        $depth = 0;
+        while ($node !== null && $depth < $maxDepth) {
+            if (isset($node->tag)) {
+                $class = strtolower(trim((string) ($node->class ?? '')));
+                if ($class !== '') {
+                    foreach (self::BODY_CONTENT_ANCESTOR_HINTS as $hint) {
+                        if (stripos($class, $hint) !== false) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            $node = $node->parent();
+            $depth++;
+        }
+        return false;
+    }
+
     private function evaluateGroup(array $group, string $pageUrl, \simple_html_dom $html): ?array
     {
         $elements = $group['elements'];
@@ -368,10 +434,15 @@ class EntryClusterDetector
             return null;
         }
 
+        if ($this->hasBodyContentAncestor($group['parent'])) {
+            return null;
+        }
+
         $urls = [];
         $samples = [];
         $linkSelectorVotes = [];
         $linkTextLengths = [];
+        $headingLinkCount = 0;
         foreach ($elements as $element) {
             $link = $element->tag === 'a' ? $element : $this->findMostLikelyTitleLink($element);
             if ($link === null || empty($link->href)) {
@@ -380,6 +451,9 @@ class EntryClusterDetector
             $href = html_entity_decode((string) $link->href);
             $urls[] = urljoin($pageUrl, $href);
             $linkTextLengths[] = mb_strlen(trim($link->plaintext));
+            if ($element->tag !== 'a' && $this->isInsideHeading($link, $element)) {
+                $headingLinkCount++;
+            }
             if (count($samples) < 3) {
                 $samples[] = mb_substr(trim($element->plaintext), 0, 120);
             }
@@ -422,7 +496,15 @@ class EntryClusterDetector
         // finds the real content if it isn't there; the right response is to decline
         // rather than confidently suggest chrome. Nav/menu labels are reliably short;
         // real article titles reliably aren't.
-        if ($avgLinkTextLength < 15) {
+        //
+        // Exception: a link wrapped in a heading tag (h1-h6) is direct structural
+        // evidence it's a title regardless of length - verified against ma.tt, whose
+        // real (correct) post titles include several genuinely short ones ("WCEU",
+        // "Maybe", "USA 250"; avg ~13 chars across the page), which this length
+        // floor would otherwise reject outright. Nav tabs are essentially never
+        // wrapped in a heading tag, so this doesn't reopen the GitHub case.
+        $mostlyHeadingLinks = $linkedCount > 0 && ($headingLinkCount / $linkedCount) >= 0.6;
+        if ($avgLinkTextLength < 15 && !$mostlyHeadingLinks) {
             return null;
         }
 
