@@ -6,13 +6,26 @@ class GoogleSearchBridge extends BridgeAbstract
     const NAME = 'Google search';
     const URI = 'https://www.google.com/';
     const CACHE_TIMEOUT = 60 * 30; // 30m
-    const DESCRIPTION = 'Returns max 100 results from the past year.';
+    const DESCRIPTION = 'Returns max 100 results, filtered by an adjustable recency window (defaults to the past year).';
 
     const PARAMETERS = [[
         'q' => [
             'name' => 'keyword',
             'required' => true,
             'exampleValue' => 'rss-bridge',
+        ],
+        'when' => [
+            'name' => 'Only show results from the last...',
+            'type' => 'list',
+            'values' => [
+                'Any time' => '',
+                'Hour' => 'h',
+                'Day' => 'd',
+                'Week' => 'w',
+                'Month' => 'm',
+                'Year' => 'y',
+            ],
+            'defaultValue' => 'y',
         ],
         'verbatim' => [
             'name' => 'Verbatim',
@@ -24,6 +37,8 @@ class GoogleSearchBridge extends BridgeAbstract
     public function collectData()
     {
         // todo: wrap this in try..catch because 429 too many requests happens a lot
+        // As of 2026-07, Google serves a JS-required interstitial to non-browser
+        // requests for this endpoint, so this bridge currently returns 0 results.
         $dom = getSimpleHTMLDOM($this->getURI(), ['Accept-language: en-US']);
         if (!$dom) {
             throwServerException('No results for this query.');
@@ -81,13 +96,23 @@ class GoogleSearchBridge extends BridgeAbstract
     public function getURI()
     {
         if ($this->getInput('q')) {
+            // sort by date, optionally restrict to a recency window, optionally verbatim
+            $tbsParts = [];
+            $when = $this->getInput('when');
+            if ($when !== '' && $when !== null) {
+                $tbsParts[] = 'qdr:' . $when;
+            }
+            $tbsParts[] = 'sbd:1';
+            if ($this->getInput('verbatim')) {
+                $tbsParts[] = 'li:1';
+            }
+
             $queryParameters = [
                 'q'         => $this->getInput('q'),
                 'hl'        => 'en',
                 'num'       => '100', // get 100 results
                 'complete'  => '0',
-                // in past year, sort by date, optionally verbatim
-                'tbs'       => 'qdr:y,sbd:1' . ($this->getInput('verbatim') ? ',li:1' : ''),
+                'tbs'       => implode(',', $tbsParts),
             ];
             return sprintf('https://www.google.com/search?%s', http_build_query($queryParameters));
         }
