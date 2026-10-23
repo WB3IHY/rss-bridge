@@ -24,7 +24,6 @@ class StartpageSearchBridge extends BridgeAbstract
                 'Month' => 'm',
                 'Year' => 'y',
             ],
-            'defaultValue' => '',
         ],
     ]];
 

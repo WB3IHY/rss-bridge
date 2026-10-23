@@ -40,7 +40,6 @@ class SearchAlertBridge extends BridgeAbstract
                 'Month' => 'm',
                 'Year' => 'y',
             ],
-            'defaultValue' => '',
         ],
         'require' => [
             'name' => 'Require (regex, optional)',

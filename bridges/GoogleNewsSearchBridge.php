@@ -24,7 +24,6 @@ class GoogleNewsSearchBridge extends FeedExpander
                 'Month' => '30d',
                 'Year' => '1y',
             ],
-            'defaultValue' => '',
         ],
         'hl' => [
             'name' => 'Language (hl)',
