@@ -64,18 +64,22 @@ final class CurlHttpClient implements HttpClient
 {
     public function request(string $url, array $config = []): Response
     {
+        // Remove null values
+        $config = array_filter($config, fn ($value) => $value !== null);
+
         $ch = curl_init($url);
 
         $defaultConfig = [
             'useragent' => null,
-            'timeout' => 5,
+            'timeout' => 3,
             'headers' => [],
             'proxy' => null,
             'curl_options' => [],
             'if_not_modified_since' => null,
-            'retries' => 2,
+            'retries' => 0,
             'max_filesize' => null,
-            'max_redirections' => 5,
+            'follow' => false,
+            'dns' => [],
         ];
 
         // Snagged from https://github.com/lwthiker/curl-impersonate/blob/main/firefox/curl_ff102
@@ -89,16 +93,6 @@ final class CurlHttpClient implements HttpClient
             'Sec-Fetch-User' => '?1',
             'TE' => 'trailers',
         ];
-
-        // array_merge() always takes the second array's value for a shared key, even if
-        // that value is null - so explicitly-null entries in the incoming $config (e.g.
-        // 'useragent' => Configuration::getConfig(...) resolving to null because it isn't
-        // set in config.ini.php, the default out-of-the-box state) would otherwise silently
-        // clobber the defaults set immediately below, leaving requests with NO User-Agent
-        // header at all despite the code's clear intent to send a realistic one. Verified
-        // this caused every request to 6abc.com to be blocked as a bot with zero UA, even
-        // though nothing here was ever configured to suppress it.
-        $config = array_filter($config, fn ($value) => $value !== null);
 
         if (curl_version()['ssl_version'] == 'BoringSSL') {
             $config = array_merge($defaultConfig, $config);
@@ -120,11 +114,16 @@ final class CurlHttpClient implements HttpClient
             curl_setopt($ch, CURLOPT_USERAGENT, $config['useragent']);
         }
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-        curl_setopt($ch, CURLOPT_MAXREDIRS, $config['max_redirections']);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, $config['follow']);
+        curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
         curl_setopt($ch, CURLOPT_TIMEOUT, $config['timeout']);
         curl_setopt($ch, CURLOPT_ENCODING, '');
         curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+
+        if ($config['dns']) {
+            curl_setopt($ch, CURLOPT_RESOLVE, $config['dns']);
+        }
 
         if ($config['max_filesize']) {
             // This option inspects the Content-Length header
@@ -202,7 +201,12 @@ final class CurlHttpClient implements HttpClient
         }
 
         $statusCode = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        curl_close($ch);
+        if (PHP_VERSION_ID >= 80000) {
+            unset($ch);
+        } else {
+            // TODO: remove after PHP minimum version >= 8
+            curl_close($ch);
+        }
         return new Response($body, $statusCode, $responseHeaders);
     }
 }
