@@ -1,7 +1,7 @@
 <?php declare(strict_types=1);
 
 /**
- * Combines GoogleNewsSearchBridge and StartpageSearchBridge into a single
+ * Combines GoogleNewsSearchBridge and BingSearchBridge into a single
  * alert feed, with optional require/exclude regex filtering -- the
  * News+Web -> merge -> filter chain, done in one bridge instead of by
  * hand-chaining separate bridge URLs.
@@ -10,7 +10,7 @@ class SearchAlertBridge extends BridgeAbstract
 {
     const NAME = 'Search alert';
     const URI = 'https://github.com/WB3IHY/rss-bridge';
-    const DESCRIPTION = 'Alerts on a name or phrase across Google News and Startpage web search, with optional require/exclude filtering.';
+    const DESCRIPTION = 'Alerts on a name or phrase across Google News and Bing web search, with optional require/exclude filtering.';
     const MAINTAINER = 'WB3IHY';
     const CACHE_TIMEOUT = 1800; // 30m
 
@@ -26,12 +26,12 @@ class SearchAlertBridge extends BridgeAbstract
             'defaultValue' => 'checked',
         ],
         'source_web' => [
-            'name' => 'Include Startpage web results',
+            'name' => 'Include Bing web results',
             'type' => 'checkbox',
             'defaultValue' => 'checked',
         ],
         'when' => [
-            'name' => 'Only show results from the last...',
+            'name' => 'Only show news results from the last...',
             'type' => 'list',
             'values' => [
                 'Any time' => '',
@@ -86,9 +86,9 @@ class SearchAlertBridge extends BridgeAbstract
         }
 
         if ($webOn) {
-            $this->collectFromSource(StartpageSearchBridge::class, [
+            // Bing's RSS output has no date filter, so `when` applies to news only.
+            $this->collectFromSource(BingSearchBridge::class, [
                 'q' => $q,
-                'when' => $when,
             ]);
         }
 
@@ -162,7 +162,7 @@ class SearchAlertBridge extends BridgeAbstract
     public function getURI()
     {
         if ($this->getInput('q')) {
-            return 'https://www.startpage.com/sp/search?' . http_build_query(['query' => $this->getInput('q')]);
+            return 'https://www.bing.com/search?' . http_build_query(['q' => $this->getInput('q')]);
         }
 
         return parent::getURI();

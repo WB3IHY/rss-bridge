@@ -4,7 +4,7 @@ class StartpageSearchBridge extends BridgeAbstract
 {
     const NAME = 'Startpage search';
     const URI = 'https://www.startpage.com/';
-    const DESCRIPTION = 'Returns results for a Startpage search query (Google results served through Startpage\'s privacy proxy), with an optional recency filter.';
+    const DESCRIPTION = 'Returns results for a Startpage search query (Google results served through Startpage\'s privacy proxy), with an optional recency filter. Currently blocked by Startpage\'s Anubis bot check (returns no results since Oct 2026).';
     const MAINTAINER = 'WB3IHY';
     const CACHE_TIMEOUT = 1800; // 30m
 
